@@ -8,7 +8,7 @@ from typing import Tuple, List
 # -------------------------------------------------
 
 # Students:
-#     - Abdelmoumen Mohamed Hatem
+#     - Abdelmoumen Hatem Mohamed
 #     - Bourzag Mohamed Chakib
 
 """QUESTIONS/ANSWERS
@@ -16,14 +16,24 @@ from typing import Tuple, List
 ----------------------------------------------------------
 Q1: What are the problem(s) with normalization in our case (Algerian tweets)?
 
-A: ...
+A1: There are many problems as:
+    - Using multiple languages (Arabic, French, English and Berber) in a single tweet so it has a big language diversity
+    so a normalization for a single language won't be enough here.
+    - Abbreviations specific to the Algerian dialect: Algérie->dz, khoya->kho...
+    - Some regions' dialect differences, for example between Arabic and Berber, east/west...
+    - Using emojis as shown in the txt file (general problem).
+    - Misspelling some words, or more precisely not having a standard spelling, for example: (tewelt, twlt), (kho, 5o)...
 
 ----------------------------------------------------------
 
 ----------------------------------------------------------
 Q2: Why word similarity is based on edit distance and not vectorization such as TF?
 
-A2: ...
+A2: Because edit distance has the ability to capture structural similarity (to define whether to apply insertion, deletion or substitution)
+    as it's based on character sequence and it's effective to detect morphological differences (which is so frequent in languages used in Algeria).
+    Whereas, vectorization as TF is used to detect document similarity, information retrieval, and text classification, where the focus is on comparing 
+    documents or larger text units based on the frequency of words (or their features), without caring about structural and morphological changes 
+    explicitely which is important in our case here.
 
 ----------------------------------------------------------
 
@@ -31,7 +41,11 @@ A2: ...
 Q3: Why tweets similarity is proposed as such? 
     (not another formula such as the sum of similarity of the first tweet's words with the second's divided by max length)
 
-A3: ...
+A3: Because if we do as proposed between () we'll only consider the most similar words from T2 with respect to T1, and therfore we'll negligate the most similar words
+    from T1 with respect to T2.
+    For example; let's suppose we have T1=[w1, w2, w3] and T2=[t1, t2]:
+    For each word of T1 let's suppose that they are all most similar to t2, and therfore by calculating as proposed between () t1 would never appear
+    That's why we have to consider both sides and devide by the sum of both lenghts to get full information about similarities of all words in the tweets
 
 ----------------------------------------------------------
 
@@ -39,7 +53,13 @@ A3: ...
 ----------------------------------------------------------
 Q4: Why blanks are being duplicated before using regular expressions in our case?
 
-A4: ...
+A4:     Because of the regular expressions ending with this [\s|$], so when it's not the end of a sentence but only passing to another word, this regular expression
+        will detect the space and so it will delete it and concinait the resulting word with the next one, that's why we need to duplicate space
+        so that after deleting the first space the two words stay separated
+        
+        For example; if we have this part of sentence "thanks dear reader", and according to our rules, the 's'
+        as well as the 'k' will be gone; and to apply it, we need to have the end of the word so it will be
+        used in the regex, so if the spaces are not duplicated, we will have as a result 'thandear reader'
 
 ----------------------------------------------------------
 
@@ -92,46 +112,80 @@ def normalize_text(text: str) -> str :
     result = text.replace(' ', '  ') # duplicate the space
     result = re.sub('['+''.join(TASHKIIL+TANWIIN+OTHER)+']', '', result)
     result = result.lower()
-    
-    # SPCIAL
 
-    result = re.sub(r'([a-zA-Z0-9._]+@[a-zA-Z0-9._]+\.[a-zA-Z]+)', '[MAIL]', result)
+
+
+    # SPECIAL =============================
+
+    result = re.sub(r'[a-zA-Z0-9._]+@[a-zA-Z0-9._]+\.[a-zA-Z]+', '[MAIL]', result)
     result = re.sub(r'@\w+', '[USER]', result) 
     result = re.sub(r'#[^\s]+', '[HASH]', result) 
     result = re.sub(r'https://t\.co/\w+', '[LINK]', result) 
 
 
-    # FRENCH/ENGLISH/BERBER
+
+    # FRENCH/ENGLISH/BERBER ===============
 
     # Replacing a and e
     result = re.sub(r'é|è|ê|ë', 'e', result)
     result = re.sub(r'à|â|ä', 'a', result)
 
     # Ending s deletion
-    result = re.sub(r's$', '', result)
+    result = re.sub(r'(\w+)(s)(\s|$)', r'\1 ', result)
 
-    result = re.sub(r'(ir|er|ement|ien|iens|euse|euses|eux)$', '', result)
+    # French suffixes
+    result = re.sub(r'(\w+)(ir|er|ement|ien|iens|euse|euses|eux)(\s|$)', r'\1 ', result)
     
+    # English suffixes
+    result = re.sub(r'(\w+[^(al)])(ly|al)(\s|$)', r'\1 ', result)
+    result = re.sub(r'(\w+)(ally\s)', r'\1al ', result)
+
+    # Berber suffixes
+    result = re.sub(r'(\w+)(yas?|en)(\s|$)', r'\1 ', result)
+
+    # English contractions
+    result = re.sub(r'(\w+t)(\'s)', r'\1 is ', result)
+    result = re.sub(r'(\w+)(n\'t)', r'\1 not ', result)
+
+    # French contractions
+    result = re.sub(r'(t|d|qu|l|s|j)(\')', r'\1e ', result)
+    result = re.sub(r'(.+)(\')(.+)', r'\1e\3 ', result)
+
+
+
+    # DZ ARABIZI ==========================
+
+    # Negation
+    result = re.sub(r'(ma)(\w+)(ch)(\s|$)', r'\2 ', result)
+
+    # Suffixes
+    result = re.sub(r'(\w+[^e])(ek|km|k)(\s|$)', r'\1 ', result)
+    result = re.sub(r'(\w{2,})(a|i|ou?)(\s|$)', r'\1 ', result)
+    result = re.sub(r'(\w{2,})(ha?)(\s|$)', r'\1 ', result)
+
+
     
-    # result = re.sub(r'(ly|al)$', '', result)
+    # ARABIC/DZ-ARABIC ====================
 
-    result = re.sub(r'(yas|en)$', '', result)
-
-    result = re.sub(r'\'s ', ' is ', result)
-    result = re.sub(r'n\'t ', ' not ', result)
-
-    result = re.sub(r's\'[aeiouy]', 'se ', result)
-    result = re.sub(r'qu\'[aeiouy]', 'que ', result)
-    result = re.sub(r'.\'.', 'e', result)
+    # Negation
+    result = re.sub(r'(^|\s)(م|ما)(\w+)(ش)(\s|$)' , r'ما \3 ' , result)
+    result = re.sub(r'(^|\s)(\w+)(ش)(\s|$)' , r'ما \2 ' , result)
 
 
-    # DZ ARABIZI
-
-    result = re.sub(r'(ma)(.+)(ch)', r'\2', result)
-    # result = re.sub(r'(ch|ek|k|km)\s', '', result)
-
+    # AL qualifiers
+    result = re.sub(r'(ال|لل|فال|فل|وال|ول|بل|بال)(\w{2,})(\s|$)', r'\2 ', result)
     
-    # ARABIC/DZ-ARABIC
+    # Plural
+    result = re.sub(r'(\w+)(ين|ون|ات|ال)(\s|$)', r'\1 ', result)
+
+    # Prounouns
+    result = re.sub(r'(\w{2,})(ني|ك|ه|ها|نا|كما|كم|كن|هما|هم|هن|وا)(\s|$)', r'\1 ', result)
+  
+    # Suffix
+    result = re.sub(r'(\w{2,})(ة|ي|ا|و)(\s|$)', r'\1 ', result)
+
+
+    # Final result ==========================
 
     return re.sub(r'[./:,;?!؟…]', ' ', result)
 
@@ -292,6 +346,5 @@ def _tweet_sim_test():
 # TODO activate one test at the time
 if __name__ == '__main__':
     # _word_sim_test()
-    _normalize_text_test()
-    # _tweet_sim_test()
-
+    # _normalize_text_test()
+    _tweet_sim_test()
