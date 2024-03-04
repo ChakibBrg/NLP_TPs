@@ -127,8 +127,8 @@ def normalize_text(text: str) -> str :
 
     # DZ ARABIZI
 
-    result = re.sub(r'ma', '', result)
-    result = re.sub(r'(ch|ek|k|km)\s', '', result)
+    result = re.sub(r'(ma)(.+)(ch)', r'\2', result)
+    # result = re.sub(r'(ch|ek|k|km)\s', '', result)
 
     
     # ARABIC/DZ-ARABIC
