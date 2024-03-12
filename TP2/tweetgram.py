@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 
 # Students:
-#     - ...
-#     - ...
+#     - Mohamed Chakib BOURZAG
+#     - Hatem Mohamed ABDELMOUMEN
 
-"""QUESTIONS/ANSWERS
+"""
+QUESTIONS/ANSWERS
 
 ----------------------------------------------------------
 Q1: 
@@ -13,7 +14,35 @@ We want to consider unknown words in general texts, propose a solution.
 We want to take in consideration different variants of Arabizi, propose a solution.
 
 A1:
-...
+
+1. To handle unknown words in general texts, here's a proposed solution:
+    
+    - Unknown token handling : 
+            - Replace all unknown words (not present in the vocabulary of the model) with a special token (such as <UNK>) 
+            - Train the N-Gram model with this special token
+            - During scoring/prediction, encountering <UNK> indicates a potential grammatical error, unseen word combination, or a rare word.
+
+    - Subword tokenization : Segment words into smaller subword units. This can enable the model to handle unknown words by decomposing them into meaningful subword units present in its vocabulary : useful when dealing with affixes.
+    
+    - Word embeddings : 
+            - Use pre-trained word embedding models to represent words as vectors.These embeddings capture semantic relationships between words.
+            - During scoring, if a word is unknown, use the average embedding vector of known words in the context (past N-1 words) to represent the unknown word.
+            - This leverages semantic similarity between known and unknown words for smoother probability estimation.
+
+
+2. To take into consideration different variants of Arabizi, one effective solution is to employ a combination of tokenization and normalization as follows :
+
+    - Tokenization: Develop a custom tokenizer that can effectively segment Arabizi text into meaningful units such as words or subwords. This tokenizer should be capable of recognizing arabic script, latin characters, and numerals commonly used in Arabizi.
+    - Normalization: Implement normalization techniques to map different variants of Arabizi representations to a standardized form. This includes :
+        - handling variations in spelling (e.g. aid, eid, 3id) by : 
+            - latin character conversion : This involves replacing latin characters used to represent arabic letters with their
+            corresponding arabic characters. (e.g. "aid" -> "عيد", "eid" -> "عيد")
+            - handling diacritics (tachkeel) : we generally ignore it most of the times
+            - standardization of numerals : Convert numerals written in latin characters to their Arabic digit counterparts 
+            (e.g., "3id" -> "عيد")       
+        - handling abbreviations and slang
+
+
 ----------------------------------------------------------
 
 
@@ -24,7 +53,20 @@ Will we get the same probability as the one in the right direction? Why?
 Will this affect grammaticality judgment? Why?
 
 A2:
-...
+- No, training a model on the inverse of texts will not result in the same probabilities or grammaticality judgment as the original direction, because the N-gram models assume a sequential nature of language ; They estimate the probability of a word appearing based on the N-words preceding it. Reversing the order breaks this sequential dependency.
+For example, consider the sentence "The cat sat on the mat."
+    - In the original order, the model learns that "sat" is more likely to follow "the cat" than any other word combination.
+    - Reversing the sentence ("mat the on sat cat the") disrupts this relationship. The model wouldn't inherently know "sat" is more likely to follow "cat the" based on its training on the reversed order.
+
+- Yes, it will affect grammaticality judgment. In fact, languages have specific grammatical rules that govern word order. Reversing the order often creates ungrammatical sentences.
+(Some language rules would be broken, for example : in english the adjective always precedes the noun and not the inverse, 
+the determinant always precedes a noun as well and not the inverse).
+Since the model trained on reversed text wouldn't capture the sequential dependencies and grammatical rules, its predictions for grammaticality would be unreliable. It might assign high probabilities to nonsensical reversed sentences, as a result it wouldn't be able to distinguish between grammatically correct and incorrect sentences based on word order.
+Let's consider the same example : 
+    - "The cat sat on the mat" is grammatically correct.
+    - "Mat the on sat cat the" is not grammatically correct and wouldn't be considered a valid sentence by the model trained on the original order.
+
+
 ----------------------------------------------------------
 
 
@@ -33,7 +75,9 @@ Q3:
 Can we use Viterbi to calculate the probability of a text? Why/How?
 
 A3:
-...
+No, the Viterbi algorithm cannot directly calculate the overall probability of a text sentence, because it is designed to find the most likely sequence of hidden states that generates a given observation sequence, i.e. finding the most probable sequence of words (hidden states) that results in a sentence (observation sequence). Moreover, the Viterbi algorithm only provides the single path that could have generated the sentence with the highest probability.
+In other words, Viterbi prioritizes finding the most probable sequence of hidden states, not the overall probability of the entire sequence because it doesn't consider all possible hidden state sequences.
+
 ----------------------------------------------------------
 
 
@@ -42,7 +86,12 @@ Q4:
 Describe how can we decide that a text is grammatical or not based on its probability.
 
 A4:
-...
+In order to make an informed decision about whether a text is grammatical or not based on the probability, we propose using N-gram model probabilities as follows :
+
+    - Train an N-gram model on a large dataset of grammatically correct text data in the target language. This model estimates the probability of a sentence by considering the probability of each word given the N-1 preceding words.
+    - Use the trained N-gram model to calculate the overall probability of the text in question. Generally, higher probabilities suggest a higher likelihood of being grammatically correct.
+    - Set a Threshold. Sentences with probabilities above the threshold are considered likely grammatical, while those below might be ungrammatical.
+
 ----------------------------------------------------------
 
 
@@ -165,10 +214,13 @@ class NGram:
         self.Lambda = Lambda
         # Add more code here
         self.V = 0
+        self.previous_grams = []
+        self.all = 0
 
-    def fit(self, data:List[List[str]]) -> None:
+    def fit(self, data:List[List[str]], previous:List = []) -> None:
         flat_list = [word for sentence in data for word in sentence]
         self.V = len(set(flat_list))
+        self.all = len(flat_list)
         for sentence in data:
             for i in range(self.N):
                 sentence.insert(0, '<s>')
@@ -183,81 +235,149 @@ class NGram:
                     freq = self.grams[ngram_str] + 1
                 self.grams[ngram_str] = freq
 
+        # Sauvegarder l'historique des appels récursifs
+        if self.N > 1:
+            previous_gram = NGram(N=self.N - 1)
+            previous_gram.fit(data, previous)
+            if previous_gram.grams not in previous:
+                previous.append(previous_gram.grams)
+            self.previous_grams = previous.copy()
+
+        # print(f"N = {self.N}, Previous: {self.previous_grams}")
+
+    
+    def calculate_log_proba(self, past:List[str], current:str, alpha = 0.0) -> float:
+        freq_past = 0
+        past_grams = ' '.join(past)
+        if past_grams in self.previous_grams[-1]:
+            freq_past += self.previous_grams[-1][past_grams]
+
+        freq_current = 0
+        current_gram = past_grams + ' ' + current
+        if current_gram in self.grams:
+            freq_current += self.grams[current_gram]
+
+
+        if freq_current + self.alpha == 0:
+            nominateur = -math.inf
+        else:
+            nominateur = math.log(freq_current + self.alpha)
+
+        if freq_past + self.alpha * self.V == 0:
+            denominateur = -math.inf
+            if alpha == 0:
+                return denominateur
+        else: 
+            denominateur = math.log(freq_past + self.alpha * self.V)
+
+        return nominateur - denominateur
+
     def score(self, past:List[str], current:str, smooth=None) -> float:
         print(past, current)
-
         if smooth == 'lidstone' or self.N == 1:
+            freq_current = 0
             if self.N > 1:
                 past_grams = ' '.join(past)
-            else:
-                past_grams = past[0]
-            freq_past = 0
-            if past_grams in self.grams:
-                freq_past += self.grams[past_grams]
-
-            freq_current = 0
-            current_gram = past_grams + ' ' + current
-            if current_gram in self.grams:
-                freq_current += self.grams[current_gram]
-
-
-            if freq_current + self.alpha == 0:
-                nominateur = -math.inf
-            else:
-                nominateur = math.log(freq_current + self.alpha)
-
-            if freq_past + self.alpha * self.V == 0:
-                denominateur = -math.inf
-            else: 
-                denominateur = math.log(freq_past + self.alpha * self.V)
-
-            return nominateur - denominateur
-        elif smooth == 'interpolation':
-            somme = 0
-            for i in range(len(self.Lambda)):
-                past_grams = " ".join(past[i:])
                 freq_past = 0
-                if past_grams in self.grams:
-                    freq_past += self.grams[past_grams]
-                freq_current = 0
+                if past_grams in self.previous_grams[-1]:
+                    freq_past += self.previous_grams[-1][past_grams]
+
                 current_gram = past_grams + ' ' + current
                 if current_gram in self.grams:
                     freq_current += self.grams[current_gram]
 
-                if freq_current != 0 and freq_past != 0:
-                    somme += self.Lambda[i] * (freq_current / freq_past)
-            return somme
+                if freq_current + self.alpha == 0:
+                    nominateur = -math.inf
+                else:
+                    nominateur = math.log(freq_current + self.alpha)
+
+                if freq_past + self.alpha * self.V == 0:
+                    denominateur = -math.inf
+                else: 
+                    denominateur = math.log(freq_past + self.alpha * self.V)
+
+                return nominateur - denominateur
+            else:
+                if current in self.grams:
+                    freq_current += self.grams[current]
+
+                if freq_current == 0:
+                    if smooth:
+                        return - math.log(self.all)
+                    else:
+                        return -math.inf
+                return math.log(freq_current) - math.log(self.all)    
         
+        elif smooth == 'interpolation':
+            somme = 0
+            new_past = past.copy()
+
+            # Inverser l'ordre pour accéder au bon élément
+            new_past.reverse()
+
+            # Parcourir toutes les historiques pour extraire les cardinalités adéquates
+            for i in range(len(self.previous_grams)):
+                past_grams = " ".join(new_past[:i])
+                freq_past = 0
+                if i > 0:
+                    current_gram = past_grams + ' ' + current
+                    if past_grams in self.previous_grams[i-1]:
+                        freq_past += self.previous_grams[i-1][past_grams]
+                else:
+                    freq_past = self.V
+                    current_gram = current
+
+                freq_current = 0
+                if current != '</s>':
+                    if current_gram in self.previous_grams[i]:
+                        freq_current += self.previous_grams[i][current_gram]
+
+
+                if freq_current > 0 and freq_past > 0:
+                    somme += self.Lambda[i] * (math.log(freq_current) - math.log(freq_past))
+
+            # For the last same element
+            last = self.score(past, current)
+            if last != -math.inf:
+                somme += self.Lambda[-1] * last
+            return somme   
         else:
             past_grams = " ".join(past)
-            print("past grams: ", past_grams)
             freq_past = 0
-            if past_grams in self.grams:
-                freq_past += self.grams[past_grams]
+            if past_grams in self.previous_grams[-1]:
+                freq_past += self.previous_grams[-1][past_grams]
+
             freq_current = 0
             current_gram = past_grams + ' ' + current
             if current_gram in self.grams:
                 freq_current += self.grams[current_gram]
-            print("freq_current: ", freq_current)
-            print("freq_past: ", freq_past)
             if freq_current == 0:
                 nominateur = -math.inf
             else:
-                nominateur = math.log(freq_current + self.alpha)
+                nominateur = math.log(freq_current)
 
             if freq_past == 0:
                 return -math.inf
             else: 
-                denominateur = math.log(freq_past + self.alpha * self.V)
+                denominateur = math.log(freq_past)
 
             return nominateur - denominateur
         
 
     def predict(self, tokens:List[str], smooth=None) -> float:
         score = 0.0
-        for i in range(len(tokens) - self.N + 1):
-            ngram = tokens[i:i+self.N]
-            score += self.score(ngram[:-1], ngram[-1], smooth=smooth)
+        sentence = tokens.copy()
+        for i in range(self.N):
+            sentence.insert(0, '<s>')
+            sentence.append('</s>')
+        for i in range(len(sentence) - self.N + 1):
+            ngram = sentence[i:i+self.N]
+            if ngram.count('<s>') == self.N or ngram.count('</s>') == self.N:
+                continue
+            inter = self.score(ngram[:-1], ngram[-1], smooth=smooth)
+            if inter == -math.inf:
+                return inter
+            score += inter
         return score
 
 
@@ -508,22 +628,27 @@ def test_gram_fit():
 
     print('========= NGram fit test =========')
     print('     Order is not important')
-    print('     your unigrams', unigram.grams)
-    print('     must be', fits['Unigram'], "\n")
-    print('     your bigrams', bigram.grams)
-    print('     must be', fits['Bigram'], "\n")
-    print('     your trigrams', trigram.grams)
-    print('     must be', fits['Trigram'])
+    print('-your unigrams', unigram.grams)
+    print('-must be', fits['Unigram'], "\n")
+    print('-your bigrams', bigram.grams)
+    print('-must be', fits['Bigram'], "\n")
+    print('-your trigrams', trigram.grams)
+    print('-must be', fits['Trigram'])
 
 
 def test_ngram_score():
     models = [
-        # ('Unigram', NGram(N=1), 1),
+        ('Unigram', NGram(N=1), 1),
         ('Bigram', NGram(N=2, alpha=1., Lambda=[0.3, 0.7]), 2),
         ('Trigram', NGram(N=3, alpha=1., Lambda=[0.2, 0.3, 0.5]), 3),
         # ('Bigram2', NGram(N=2, alpha=0.001, Lambda=[0.7, 0.3]), 2),
         # ('Trigram2', NGram(N=3, alpha=0.001, Lambda=[0.5, 0.3, 0.2]), 3)
     ]
+
+    tests_inversed = [test.copy() for test in tests]
+
+    for test in tests_inversed:
+        test.reverse()
 
     print('========= Score test =========')
     for name, mdl, N in models:
@@ -535,6 +660,10 @@ def test_ngram_score():
             print('log p_L(', test[-1], '|', ' '.join(test[-N:-1]), ')= ', scores[i][name][1], ', yours=', mdl.score(test[-N:-1], test[-1], smooth='lidstone'))
             print('log p_I(', test[-1], '|', ' '.join(test[-N:-1]), ')= ', scores[i][name][2], ', yours=', mdl.score(test[-N:-1], test[-1], smooth='interpolation'))
 
+        for i, test in enumerate(tests_inversed):
+            print('log p(', test[-1], '|', ' '.join(test[-N:-1]), ')= ', scores[i][name][0], ', yours=', mdl.score(test[-N:-1], test[-1], smooth=None))
+            print('log p_L(', test[-1], '|', ' '.join(test[-N:-1]), ')= ', scores[i][name][1], ', yours=', mdl.score(test[-N:-1], test[-1], smooth='lidstone'))
+            print('log p_I(', test[-1], '|', ' '.join(test[-N:-1]), ')= ', scores[i][name][2], ', yours=', mdl.score(test[-N:-1], test[-1], smooth='interpolation'))
 
 def test_ngram_predict():
     models = [
@@ -551,8 +680,8 @@ def test_ngram_predict():
         mdl.fit(texts)
         print('model:', name)
         for i, test in enumerate(tests):
-            print('log p_L(', test, ')= ', predicts[i][name][0], ', yours=', mdl.prdict(test, smooth='lidstone'))
-            print('log p_I(', test, ')= ', predicts[i][name][1], ', yours=', mdl.prdict(test, smooth='interpolation'))
+            print('log p_L(', test, ')= ', predicts[i][name][0], ', yours=', mdl.predict(test, smooth='lidstone'))
+            print('log p_I(', test, ')= ', predicts[i][name][1], ', yours=', mdl.predict(test, smooth='interpolation'))
 
 
 def test_grammaticality():
@@ -578,7 +707,7 @@ def test_grammaticality():
 # Activate unitary tests one by one and desactivate the rest.
 if __name__ == '__main__':
     # test_new()
-    test_gram_fit()
+    # test_gram_fit()
     test_ngram_score()
     # test_ngram_predict()
     # test_grammaticality()
